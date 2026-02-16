@@ -68,11 +68,13 @@
 //!
 //! Fortuna paper: <https://www.schneier.com/wp-content/uploads/2015/12/fortuna.pdf>
 
+use std::convert::Infallible;
 use std::sync::{Mutex, Once};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Error};
-use getrandom::getrandom;
+use getrandom::SysRng;
+use rand_core::TryRng;
 use sha2::{Digest, Sha256};
 
 /// Entropy gets added to the backup pool every time the random library is used. Once every 512
@@ -135,13 +137,13 @@ fn init() {
         // that the developer knows something is wrong with the call to getrandom.
         let mut base = [0u8; 32];
         let mut backup = [0u8; 32];
-        match getrandom(&mut base) {
+        match SysRng.try_fill_bytes(&mut base) {
             Ok(_) => {}
             Err(error) => {
                 debug_assert!(false, "unable to get base randomness from OS: {}", error);
             }
         }
-        match getrandom(&mut backup) {
+        match SysRng.try_fill_bytes(&mut backup) {
             Ok(_) => {}
             Err(error) => {
                 debug_assert!(false, "unable to get backup randomness from OS: {}", error);
@@ -344,18 +346,20 @@ pub struct Csprng {
     // No state is required, just use the public functions.
 }
 
-impl rand_core::CryptoRng for Csprng {}
+impl rand_core::TryCryptoRng for Csprng {}
 
-impl rand_core::RngCore for Csprng {
-    fn next_u32(&mut self) -> u32 {
-        u32::from_le_bytes(random256()[..4].try_into().unwrap())
+impl rand_core::TryRng for Csprng {
+    type Error = Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Infallible> {
+        Ok(u32::from_le_bytes(random256()[..4].try_into().unwrap()))
     }
 
-    fn next_u64(&mut self) -> u64 {
-        u64::from_le_bytes(random256()[..8].try_into().unwrap())
+    fn try_next_u64(&mut self) -> Result<u64, Infallible> {
+        Ok(u64::from_le_bytes(random256()[..8].try_into().unwrap()))
     }
 
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Infallible> {
         let dlen = dest.len();
         let mut i = 0;
         while i + 32 <= dlen {
@@ -364,16 +368,12 @@ impl rand_core::RngCore for Csprng {
             i += 32;
         }
         if dlen % 32 == 0 {
-            return;
+            return Ok(());
         }
 
         let rand = random256();
         let need = dlen - i;
         dest[i..dlen].copy_from_slice(&rand[..need]);
-    }
-
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        self.fill_bytes(dest);
         Ok(())
     }
 }
@@ -381,8 +381,8 @@ impl rand_core::RngCore for Csprng {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ed25519_dalek::Signer;
-    use rand_core::RngCore;
+    use ed25519_dalek::{SecretKey, Signer};
+    use rand_core::Rng;
 
     #[test]
     // Perform a statistical test to look for basic mistakes in random256. Note that this test
@@ -483,7 +483,7 @@ mod tests {
             }
             assert!(different);
         }
-        assert!(counter.len() == 256);
+        assert_eq!(counter.len(), 256);
         for i in 0..=255 {
             let v = *counter.get(&i).unwrap();
             assert!((v as f64) > total_bytes as f64 * 0.7 / 256.0);
@@ -492,15 +492,18 @@ mod tests {
 
 
         // Basic test: see that we can use our csprng to create an ed25519 key.
-        let keypair = ed25519_dalek::Keypair::generate(&mut csprng);
+        let mut secret_key = SecretKey::default();
+        csprng.fill_bytes(&mut secret_key);
+        let keypair = ed25519_dalek::SigningKey::from_bytes(&secret_key);
         let msg = b"example message";
         let sig = keypair.sign(msg);
-        keypair.public.verify_strict(msg, &sig).unwrap();
+        keypair.verify_strict(msg, &sig).unwrap();
 
         // Secondary test: ensure two keys made with the Csprng are not identical.
         let mut csprng = Csprng {};
-        let keypair2 = ed25519_dalek::Keypair::generate(&mut csprng);
-        assert!(keypair.to_bytes() != keypair2.to_bytes());
+        csprng.fill_bytes(&mut secret_key);
+        let keypair2 = ed25519_dalek::SigningKey::from_bytes(&secret_key);
+        assert_ne!(keypair.to_bytes(), keypair2.to_bytes());
 
         // Use all of the methods of the cspring.
         let mut counter = std::collections::HashMap::new();

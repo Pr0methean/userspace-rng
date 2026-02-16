@@ -8,14 +8,14 @@ repository = "https://github.com/DavidVorick/userspace-rng"
 
 [dependencies]
 anyhow = "1.0"
-getrandom = { version = "0.2", features = ["js", "std"] }
-rand_core = "0.5"
+getrandom = { version = "0.4", features = ["std", "sys_rng"] }
+rand_core = "0.10.0"
 sha2 = "0.10"
 
 [dev-dependencies]
-criterion = "0.3"
-ed25519-dalek = "1"
-rand_core = "0.5"
+criterion = "0.8.2"
+ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
+rand_core = "0.10.0"
 
 [[bench]]
 name = "rng_speed"
