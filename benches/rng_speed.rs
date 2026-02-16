@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use userspace_random::random256;
+use userspace_rng::random256;
 
 fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("random256", |b| b.iter(|| random256()));
