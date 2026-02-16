@@ -260,7 +260,7 @@ pub fn random256() -> [u8; 32] {
         .as_nanos()
         .to_le_bytes();
     for i in 0..15 {
-        backup_pool[i] ^= output_timing_entropy[i];
+        backup_pool[i+16] ^= output_timing_entropy[i];
     }
 
     // Hash the backup pool now that new information has been xor'd in. By hashing the backup pool
@@ -277,7 +277,7 @@ pub fn random256() -> [u8; 32] {
         .as_nanos()
         .to_le_bytes();
     for i in 0..15 {
-        entropy_pool[i] ^= backup_timing_entropy[i];
+        entropy_pool[i+16] ^= backup_timing_entropy[i];
     }
 
     // Hash the updated entropy pool so that the new entropy gets fully mixed into the pool. This
